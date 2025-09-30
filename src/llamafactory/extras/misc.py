@@ -159,6 +159,16 @@ def get_current_device() -> "torch.device":
             )
             return slurm_local
 
+        # MPI-style local rank variables
+        mpi_local = os.environ.get("OMPI_COMM_WORLD_LOCAL_RANK") or os.environ.get("MV2_COMM_WORLD_LOCAL_RANK")
+        if mpi_local is not None:
+            os.environ["LOCAL_RANK"] = mpi_local
+            logger.info_rank0(
+                "LOCAL_RANK not set; adopting MPI local rank=%s for device placement.",
+                mpi_local,
+            )
+            return mpi_local
+
         # Fallback to global process id if that is all we have
         slurm_proc = os.environ.get("SLURM_PROCID")
         if slurm_proc is not None:
@@ -168,6 +178,24 @@ def get_current_device() -> "torch.device":
                 slurm_proc,
             )
             return slurm_proc
+
+        # DeepSpeed + torchrun always export RANK even if LOCAL_RANK is missing in exotic launchers
+        global_rank = os.environ.get("RANK")
+        if global_rank is not None:
+            try:
+                device_count = get_device_count()
+                inferred_local = str(int(global_rank) % max(device_count, 1))
+            except Exception:
+                inferred_local = "0"
+
+            os.environ["LOCAL_RANK"] = inferred_local
+            logger.info_rank0(
+                "LOCAL_RANK not set; inferring from RANK=%s -> LOCAL_RANK=%s (device_count=%s).",
+                global_rank,
+                inferred_local,
+                get_device_count(),
+            )
+            return inferred_local
 
         # As a last resort default to rank 0 so that we can still run in single-GPU mode
         os.environ.setdefault("LOCAL_RANK", "0")
