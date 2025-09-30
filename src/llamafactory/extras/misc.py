@@ -143,14 +143,50 @@ def count_parameters(model: "torch.nn.Module") -> tuple[int, int]:
 
 def get_current_device() -> "torch.device":
     r"""Get the current available device."""
+
+    def _resolve_local_rank() -> str:
+        local_rank = os.environ.get("LOCAL_RANK")
+        if local_rank is not None:
+            return local_rank
+
+        # Prefer Slurm-provided local id when available
+        slurm_local = os.environ.get("SLURM_LOCALID")
+        if slurm_local is not None:
+            os.environ["LOCAL_RANK"] = slurm_local
+            logger.info_rank0(
+                "LOCAL_RANK not set; adopting SLURM_LOCALID=%s for device placement.",
+                slurm_local,
+            )
+            return slurm_local
+
+        # Fallback to global process id if that is all we have
+        slurm_proc = os.environ.get("SLURM_PROCID")
+        if slurm_proc is not None:
+            os.environ["LOCAL_RANK"] = slurm_proc
+            logger.info_rank0(
+                "LOCAL_RANK not set; adopting SLURM_PROCID=%s for device placement.",
+                slurm_proc,
+            )
+            return slurm_proc
+
+        # As a last resort default to rank 0 so that we can still run in single-GPU mode
+        os.environ.setdefault("LOCAL_RANK", "0")
+        logger.warning_rank0(
+            "LOCAL_RANK not provided; defaulting to 0. Set LOCAL_RANK/SLURM_LOCALID to avoid device collisions."
+        )
+        return os.environ["LOCAL_RANK"]
+
+    local_rank = _resolve_local_rank()
+    logger.info_rank0("Using LOCAL_RANK=%s", local_rank)
+
     if is_torch_xpu_available():
-        device = "xpu:{}".format(os.getenv("LOCAL_RANK", "0"))
+        device = f"xpu:{local_rank}"
     elif is_torch_npu_available():
-        device = "npu:{}".format(os.getenv("LOCAL_RANK", "0"))
+        device = f"npu:{local_rank}"
     elif is_torch_mps_available():
-        device = "mps:{}".format(os.getenv("LOCAL_RANK", "0"))
+        device = f"mps:{local_rank}"
     elif is_torch_cuda_available():
-        device = "cuda:{}".format(os.getenv("LOCAL_RANK", "0"))
+        device = f"cuda:{local_rank}"
     else:
         device = "cpu"
 
