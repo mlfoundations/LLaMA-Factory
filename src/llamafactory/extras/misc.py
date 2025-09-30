@@ -208,12 +208,24 @@ def get_current_device() -> "torch.device":
     logger.info_rank0("Using LOCAL_RANK=%s", local_rank)
 
     if is_torch_xpu_available():
+        torch.xpu.set_device(int(local_rank))
         device = f"xpu:{local_rank}"
     elif is_torch_npu_available():
+        torch.npu.set_device(int(local_rank))
         device = f"npu:{local_rank}"
     elif is_torch_mps_available():
         device = f"mps:{local_rank}"
+        try:
+            import torch.mps as mps
+
+            mps.set_device(int(local_rank))
+        except Exception:
+            pass
     elif is_torch_cuda_available():
+        try:
+            torch.cuda.set_device(int(local_rank))
+        except Exception as err:
+            logger.warning_rank0("Failed to set CUDA device to %s: %s", local_rank, err)
         device = f"cuda:{local_rank}"
     else:
         device = "cpu"
