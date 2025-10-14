@@ -29,6 +29,8 @@ packaging
 protobuf
 pyyaml
 pydantic<=2.10.6
+supabase
+python-dotenv
 # api
 uvicorn
 fastapi

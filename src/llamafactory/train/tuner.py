@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import dataclasses
+import json
 import os
 import shutil
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 import torch
@@ -28,6 +31,7 @@ from ..extras.misc import infer_optim_dtype
 from ..extras.packages import is_ray_available
 from ..hparams import get_infer_args, get_ray_args, get_train_args, read_args
 from ..model import load_model, load_tokenizer
+from ..database import load_supabase_keys, register_trained_model
 from .callbacks.qat import get_qat_callback
 from .callbacks_module import LogCallback, PissaConvertCallback, ReporterCallback
 from .dpo import run_dpo
@@ -76,6 +80,25 @@ def _training_function(config: dict[str, Any]) -> None:
 
     callbacks.append(ReporterCallback(model_args, data_args, finetuning_args, generating_args))  # add to last
 
+    def _is_rank_zero() -> bool:
+        if dist.is_available() and dist.is_initialized():
+            try:
+                return dist.get_rank() == 0
+            except Exception:
+                return True
+        return True
+
+    required_supabase_keys = ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY")
+    supabase_ready = False
+    if _is_rank_zero():
+        if all(os.environ.get(key) for key in required_supabase_keys):
+            supabase_ready = True
+        else:
+            supabase_ready = load_supabase_keys()
+            supabase_ready = supabase_ready and all(os.environ.get(key) for key in required_supabase_keys)
+
+    training_start = datetime.now(timezone.utc)
+
     # FSDP runtime status logging removed to avoid premature accelerator initialization
 
     if finetuning_args.stage == "pt":
@@ -101,6 +124,111 @@ def _training_function(config: dict[str, Any]) -> None:
             dist.destroy_process_group()
     except Exception as e:
         logger.warning(f"Failed to destroy process group: {e}.")
+
+    if not _is_rank_zero():
+        return
+
+    if not supabase_ready:
+        return
+
+    if not training_args.push_to_hub:
+        return
+
+    hub_repo_id = getattr(training_args, "hub_model_id", None)
+    if not hub_repo_id:
+        return
+
+    dataset_name = getattr(data_args, "dataset", None)
+    if not dataset_name:
+        dataset_name = getattr(data_args, "dataset_dir", None)
+    if not dataset_name:
+        logger.warning_rank0("Supabase registration skipped: dataset name is unavailable.")
+        return
+
+    def _to_jsonable(obj: Any) -> Any:
+        try:
+            if hasattr(obj, "to_dict"):
+                return obj.to_dict()
+        except Exception:
+            pass
+        try:
+            if hasattr(obj, "to_json_string"):
+                return json.loads(obj.to_json_string())
+        except Exception:
+            pass
+        if dataclasses.is_dataclass(obj):
+            try:
+                return dataclasses.asdict(obj)
+            except Exception:
+                pass
+        try:
+            return json.loads(json.dumps(obj, default=str))
+        except Exception:
+            return str(obj)
+
+    training_type = (finetuning_args.stage or "").lower()
+    if training_type in {"ppo", "dpo", "kto", "rm"}:
+        training_type = "RL"
+    else:
+        training_type = "SFT"
+
+    created_by = ""
+    if "/" in hub_repo_id:
+        created_by = hub_repo_id.split("/", 1)[0]
+    created_by = created_by or os.environ.get("HF_USERNAME") or os.environ.get("JOB_CREATOR", "")
+
+    agent_name = (
+        os.environ.get("TRAINING_AGENT_NAME")
+        or os.environ.get("DC_AGENT_NAME")
+        or finetuning_args.finetuning_type
+        or "llama-factory"
+    )
+
+    training_parameters = {
+        "model_args": _to_jsonable(model_args),
+        "data_args": _to_jsonable(data_args),
+        "training_args": _to_jsonable(training_args),
+        "finetuning_args": _to_jsonable(finetuning_args),
+        "generating_args": _to_jsonable(generating_args),
+    }
+
+    wandb_link = None
+    try:
+        import wandb  # type: ignore
+
+        if wandb.run is not None:
+            wandb_link = wandb.run.url
+    except Exception:
+        wandb_link = None
+
+    training_end = datetime.now(timezone.utc)
+
+    record = {
+        "agent_name": agent_name,
+        "training_start": training_start.isoformat(),
+        "training_end": training_end.isoformat(),
+        "created_by": created_by,
+        "base_model_name": getattr(model_args, "model_name_or_path", None),
+        "dataset_name": dataset_name,
+        "training_type": training_type,
+        "training_parameters": training_parameters,
+        "wandb_link": wandb_link,
+        "traces_location_s3": os.environ.get("TRACE_S3_PATH"),
+        "model_name": hub_repo_id,
+    }
+
+    if not record["base_model_name"]:
+        logger.warning_rank0("Supabase registration skipped: base_model_name missing.")
+        return
+
+    result = register_trained_model(record)
+    if result.get("success"):
+        logger.info_rank0("Registered trained model metadata with Supabase.")
+    else:
+        logger.warning_rank0(
+            "Supabase registration failed: %s",
+            result.get("error", "unknown error"),
+        )
 
 
 def run_exp(args: Optional[dict[str, Any]] = None, callbacks: Optional[list["TrainerCallback"]] = None) -> None:
