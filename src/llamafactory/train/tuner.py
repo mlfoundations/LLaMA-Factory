@@ -138,9 +138,16 @@ def _training_function(config: dict[str, Any]) -> None:
     if not hub_repo_id:
         return
 
-    dataset_name = getattr(data_args, "dataset", None)
+    def _first_str(value: Any) -> Optional[str]:
+        if isinstance(value, (list, tuple)):
+            return _first_str(value[0] if value else None)
+        if isinstance(value, set):
+            return _first_str(next(iter(value)) if value else None)
+        return str(value) if value is not None else None
+
+    dataset_name = _first_str(getattr(data_args, "dataset", None))
     if not dataset_name:
-        dataset_name = getattr(data_args, "dataset_dir", None)
+        dataset_name = _first_str(getattr(data_args, "dataset_dir", None))
     if not dataset_name:
         logger.warning_rank0("Supabase registration skipped: dataset name is unavailable.")
         return

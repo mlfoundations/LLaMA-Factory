@@ -646,10 +646,21 @@ def register_trained_model(
     Register a newly trained model (SFT/RL)
     """
     try:
-        agent_name = training_record.get('agent_name')
-        base_model_name = training_record.get('base_model_name')
-        dataset_name = training_record.get('dataset_name')
-        training_type = training_record.get('training_type')
+        def _unwrap(value):
+            if isinstance(value, (list, tuple, set)):
+                if not value:
+                    return None
+                try:
+                    first = value[0]
+                except TypeError:
+                    first = next(iter(value))
+                return _unwrap(first)
+            return value
+
+        agent_name = _unwrap(training_record.get('agent_name'))
+        base_model_name = _unwrap(training_record.get('base_model_name'))
+        dataset_name = _unwrap(training_record.get('dataset_name'))
+        training_type = _unwrap(training_record.get('training_type'))
         if not agent_name:
             return {"success": False, "error": "agent_name is required"}
         if not base_model_name:
