@@ -693,8 +693,21 @@ def register_trained_model(
                 training_params = json.loads(training_params)
             except Exception:
                 training_params = {"raw": training_params}
-        elif not isinstance(training_params, dict):
-            training_params = {"raw": training_params}
+        elif isinstance(training_params, dict):
+            cleaned: Dict[str, Any] = {}
+            for key, value in training_params.items():
+                try:
+                    json.dumps(value)
+                    cleaned[key] = value
+                except TypeError:
+                    cleaned[key] = str(value)
+            training_params = cleaned
+        else:
+            try:
+                json.dumps(training_params)
+                training_params = {"value": training_params}
+            except TypeError:
+                training_params = {"raw": str(training_params)}
 
         created_by = training_record.get('created_by') or ''
         wandb_link = training_record.get('wandb_link') or ''
