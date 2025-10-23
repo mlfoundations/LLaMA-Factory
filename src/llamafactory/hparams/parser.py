@@ -636,17 +636,40 @@ def get_train_args(args: Optional[Union[dict[str, Any], list[str]]] = None) -> _
     if data_args.neat_packing and is_transformers_version_greater_than("4.53.0"):
         raise ValueError("Neat packing is incompatible with transformers>=4.53.0.")
 
-    if data_args.cutoff_len % model_args.sequence_parallel_size != 0:
-        raise ValueError("cutoff_len must be a multiple of sequence_parallel_size.")
+    try:
+        cutoff_int = int(data_args.cutoff_len)
+    except (TypeError, ValueError):
+        logger.warning_rank0(
+            "cutoff_len (%s) is not an integer; skipping sequence parallel validations.",
+            getattr(data_args, "cutoff_len", "<unset>"),
+        )
+        cutoff_int = None
 
-    if model_args.sequence_parallel_size > 1:
-        if (data_args.cutoff_len // model_args.sequence_parallel_size) % 8 != 0:
-            tmp_sp_len = data_args.cutoff_len // model_args.sequence_parallel_size
-            closest_cutoff_len = int((tmp_sp_len + (8 - tmp_sp_len % 8)) * model_args.sequence_parallel_size)
+    try:
+        seq_parallel_size = int(model_args.sequence_parallel_size)
+    except (TypeError, ValueError):
+        logger.warning_rank0(
+            "sequence_parallel_size (%s) is not an integer; skipping sequence parallel validations.",
+            getattr(model_args, "sequence_parallel_size", "<unset>"),
+        )
+        seq_parallel_size = None
+
+    if cutoff_int is not None and seq_parallel_size is not None and seq_parallel_size > 0:
+        if cutoff_int % seq_parallel_size != 0:
+            raise ValueError("cutoff_len must be a multiple of sequence_parallel_size.")
+    else:
+        cutoff_int = None
+        seq_parallel_size = None
+
+    if seq_parallel_size is not None and seq_parallel_size > 1 and cutoff_int is not None:
+        if (cutoff_int // seq_parallel_size) % 8 != 0:
+            tmp_sp_len = cutoff_int // seq_parallel_size
+            closest_cutoff_len = int((tmp_sp_len + (8 - tmp_sp_len % 8)) * seq_parallel_size)
             logger.warning_rank0(
-                f"cutoff_len must be a multiple of 8 after dividing sequence_parallel_size. With sequence parallel, we first pad to cutoff_len and then split the sequence. \nAll the DataCollators pad to multiple of 8, which is hard-coded in LLaMA-Factory. If the splitted sequences are not already mutliple of 8, padding it to be would effectively change the original sequence and is wrong. \nWe automatically increase the cutoff_len = {data_args.cutoff_len} you set to the larger but closest number satifying this condition to be {closest_cutoff_len}."
+                f"cutoff_len must be a multiple of 8 after dividing sequence_parallel_size. With sequence parallel, we first pad to cutoff_len and then split the sequence. \nAll the DataCollators pad to multiple of 8, which is hard-coded in LLaMA-Factory. If the splitted sequences are not already mutliple of 8, padding it to be would effectively change the original sequence and is wrong. \nWe automatically increase the cutoff_len = {cutoff_int} you set to the larger but closest number satifying this condition to be {closest_cutoff_len}."
             )
             data_args.cutoff_len = closest_cutoff_len
+        cutoff_int = data_args.cutoff_len
 
         if model_args.sequence_parallel_mode == "zigzag-ring" and data_args.neat_packing:
             raise ValueError(
