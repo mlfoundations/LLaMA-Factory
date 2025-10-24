@@ -644,6 +644,8 @@ def get_train_args(args: Optional[Union[dict[str, Any], list[str]]] = None) -> _
             getattr(data_args, "cutoff_len", "<unset>"),
         )
         cutoff_int = None
+    else:
+        data_args.cutoff_len = cutoff_int
 
     try:
         seq_parallel_size = int(model_args.sequence_parallel_size)
@@ -653,6 +655,8 @@ def get_train_args(args: Optional[Union[dict[str, Any], list[str]]] = None) -> _
             getattr(model_args, "sequence_parallel_size", "<unset>"),
         )
         seq_parallel_size = None
+    else:
+        model_args.sequence_parallel_size = seq_parallel_size
 
     if cutoff_int is not None and seq_parallel_size is not None and seq_parallel_size > 0:
         if cutoff_int % seq_parallel_size != 0:
