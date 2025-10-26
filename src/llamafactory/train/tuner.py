@@ -28,7 +28,7 @@ from ..extras import logging
 from ..extras.constants import V_HEAD_SAFE_WEIGHTS_NAME, V_HEAD_WEIGHTS_NAME
 from ..extras.deepspeed_utils import apply_deepspeed_patches
 from ..extras.misc import infer_optim_dtype
-from ..extras.packages import is_ray_available
+from ..extras.packages import is_mcore_adapter_available, is_ray_available
 from ..hparams import get_infer_args, get_ray_args, get_train_args, read_args
 from ..model import load_model, load_tokenizer
 from ..database import load_supabase_keys, register_trained_model
@@ -101,7 +101,22 @@ def _training_function(config: dict[str, Any]) -> None:
 
     # FSDP runtime status logging removed to avoid premature accelerator initialization
 
-    if finetuning_args.stage == "pt":
+    if finetuning_args.stage in ["pt", "sft", "dpo"] and finetuning_args.use_mca:
+        if not is_mcore_adapter_available():
+            raise ImportError("mcore_adapter is not installed. Please install it with `pip install mcore-adapter`.")
+        if finetuning_args.stage == "pt":
+            from .mca import run_pt as run_pt_mca
+
+            run_pt_mca(model_args, data_args, training_args, finetuning_args, callbacks)
+        elif finetuning_args.stage == "sft":
+            from .mca import run_sft as run_sft_mca
+
+            run_sft_mca(model_args, data_args, training_args, finetuning_args, callbacks)
+        else:  # dpo
+            from .mca import run_dpo as run_dpo_mca
+
+            run_dpo_mca(model_args, data_args, training_args, finetuning_args, callbacks)
+    elif finetuning_args.stage == "pt":
         run_pt(model_args, data_args, training_args, finetuning_args, callbacks)
     elif finetuning_args.stage == "sft":
         run_sft(model_args, data_args, training_args, finetuning_args, generating_args, callbacks)
