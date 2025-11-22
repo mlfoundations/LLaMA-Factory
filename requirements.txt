@@ -28,7 +28,7 @@ omegaconf
 packaging
 protobuf
 pyyaml
-pydantic<=2.10.6
+pydantic<=2.11.9
 supabase
 python-dotenv
 # api
