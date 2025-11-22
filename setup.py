@@ -58,6 +58,12 @@ extra_require = {
     "apollo": ["apollo-torch"],
     "badam": ["badam>=1.2.1"],
     "adam-mini": ["adam-mini"],
+    "mcore": [
+        "transformer-engine[pytorch]",
+        "flashinfer-python",
+        "megatron-bridge",
+        "megatron-core",
+    ],
     "minicpm_v": [
         "soundfile",
         "torchvision",
