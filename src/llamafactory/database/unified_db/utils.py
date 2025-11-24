@@ -21,6 +21,32 @@ from .models import clean_dataset_metadata, clean_model_metadata, clean_agent_me
 
 logger = logging.getLogger(__name__)
 
+try:
+    from harbor.utils.traces_utils import (
+        convert_openai_to_sharegpt,
+        export_traces,
+        rows_to_dataset,
+        push_dataset,
+    )
+except ImportError:  # pragma: no cover - Harbor optional in some environments
+
+    def _missing_harbor(*_args, **_kwargs):
+        raise ImportError(
+            "Harbor is required for trace export utilities. Install harbor or add it to PYTHONPATH."
+        )
+
+    def convert_openai_to_sharegpt(*args, **kwargs):
+        _missing_harbor()
+
+    def export_traces(*args, **kwargs):
+        _missing_harbor()
+
+    def rows_to_dataset(*args, **kwargs):
+        _missing_harbor()
+
+    def push_dataset(*args, **kwargs):
+        _missing_harbor()
+
 
 def load_supabase_keys() -> bool:
     """Load Supabase credentials from KEYS env var if available."""

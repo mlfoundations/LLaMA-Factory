@@ -63,6 +63,7 @@ extra_require = {
         "flashinfer-python",
         "megatron-bridge",
         "megatron-core",
+        "git+https://github.com/penfever/roll.git#subdirectory=mcore_adapter",
     ],
     "minicpm_v": [
         "soundfile",
