@@ -542,9 +542,53 @@ def torch_gc() -> None:
         torch.cuda.empty_cache()
 
 
+def _roll_download_model(model_name_or_path: str, local_dir: str | None = None) -> str:
+    try:
+        from roll.utils.checkpoint_manager import download_model  # type: ignore
+    except Exception:  # pragma: no cover - roll is optional
+        return model_name_or_path
+
+    try:
+        return download_model(model_name_or_path, local_dir=local_dir)
+    except Exception as exc:  # pragma: no cover - network or ray failures
+        logger.warning(
+            "roll.utils.checkpoint_manager.download_model failed for %s: %s. Falling back to default logic.",
+            model_name_or_path,
+            exc,
+        )
+        return model_name_or_path
+
+
 def try_download_model_from_other_hub(model_args: "ModelArguments") -> str:
-    if (not use_modelscope() and not use_openmind()) or os.path.exists(model_args.model_name_or_path):
+    if os.path.exists(model_args.model_name_or_path):
         return model_args.model_name_or_path
+
+    downloaded_path = _roll_download_model(model_args.model_name_or_path, local_dir=model_args.cache_dir)
+    if os.path.exists(downloaded_path):
+        return downloaded_path
+
+    if not use_modelscope() and not use_openmind():
+        try:
+            from huggingface_hub import snapshot_download  # type: ignore
+
+            revision = model_args.model_revision if getattr(model_args, "model_revision", None) else "main"
+            downloaded_path = snapshot_download(
+                repo_id=model_args.model_name_or_path,
+                revision=revision,
+                cache_dir=model_args.cache_dir,
+                token=getattr(model_args, "hf_hub_token", None),
+            )
+            if os.path.exists(downloaded_path):
+                return downloaded_path
+        except Exception as exc:  # pragma: no cover - network/hub failures
+            logger.warning(
+                "huggingface_hub.snapshot_download failed for %s: %s.",
+                model_args.model_name_or_path,
+                exc,
+            )
+        return downloaded_path
+
+    if use_modelscope():
 
     if use_modelscope():
         check_version("modelscope>=1.14.0", mandatory=True)
