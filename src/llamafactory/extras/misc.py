@@ -589,8 +589,6 @@ def try_download_model_from_other_hub(model_args: "ModelArguments") -> str:
         return downloaded_path
 
     if use_modelscope():
-
-    if use_modelscope():
         check_version("modelscope>=1.14.0", mandatory=True)
         from modelscope import snapshot_download  # type: ignore
         from modelscope.hub.api import HubApi  # type: ignore
