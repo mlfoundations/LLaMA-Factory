@@ -6,6 +6,7 @@ This module provides Supabase client configuration and connection management
 that combines both the original Supabase configuration and terminal-bench configuration.
 """
 
+import logging
 import os
 from typing import Optional
 from dotenv import load_dotenv
@@ -55,6 +56,7 @@ class SupabaseConfig:
 
 # Create config instance
 supabase_config = SupabaseConfig()
+logger = logging.getLogger(__name__)
 
 
 def create_supabase_client(use_admin: bool = False) -> Client:
@@ -82,13 +84,32 @@ def create_supabase_client(use_admin: bool = False) -> Client:
     else:
         key = supabase_config.supabase_anon_key
 
-    # Create client with timeout options
-    options = ClientOptions(
-        postgrest_client_timeout=30,
-        storage_client_timeout=30
-    )
+    options: Optional[ClientOptions]
+    try:
+        options = ClientOptions(
+            postgrest_client_timeout=30,
+            storage_client_timeout=30,
+        )
+    except TypeError:
+        # Older supabase-py releases do not accept timeout kwargs.
+        options = None
 
-    return create_client(supabase_config.supabase_url, key, options)
+    if options is not None and not hasattr(options, "storage"):
+        # Some supabase-py versions expect options.storage to exist during client creation.
+        try:
+            setattr(options, "storage", None)
+        except Exception:
+            options = None
+
+    if options is not None:
+        try:
+            return create_client(supabase_config.supabase_url, key, options)
+        except AttributeError as exc:
+            if "'ClientOptions' object has no attribute 'storage'" not in str(exc):
+                raise
+            logger.debug("Supabase client options missing storage attribute; retrying without custom options.")
+
+    return create_client(supabase_config.supabase_url, key)
 
 
 def get_default_client() -> Client:
