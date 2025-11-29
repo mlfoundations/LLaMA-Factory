@@ -16,6 +16,7 @@
 # limitations under the License.
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -46,6 +47,42 @@ from .training_args import RayArguments, TrainingArguments
 logger = logging.get_logger(__name__)
 
 check_dependencies()
+
+
+def _latest_checkpoint_subdir(output_dir: str) -> Optional[str]:
+    """Return the newest `checkpoint-*` subdirectory if it exists."""
+    if not os.path.isdir(output_dir):
+        return None
+
+    latest_numeric: tuple[int, str] | None = None
+    latest_fallback: tuple[float, str] | None = None
+    pattern = re.compile(r"^checkpoint-(\d+)$")
+
+    for entry in os.listdir(output_dir):
+        match = pattern.match(entry)
+        path = os.path.join(output_dir, entry)
+        if not os.path.isdir(path):
+            continue
+        step: Optional[int] = None
+        if match:
+            try:
+                step = int(match.group(1))
+            except ValueError:
+                step = None
+
+        if step is not None:
+            if latest_numeric is None or step > latest_numeric[0]:
+                latest_numeric = (step, path)
+        elif entry.startswith("checkpoint-"):
+            mtime = os.path.getmtime(path)
+            if latest_fallback is None or mtime > latest_fallback[0]:
+                latest_fallback = (mtime, path)
+
+    if latest_numeric is not None:
+        return latest_numeric[1]
+    if latest_fallback is not None:
+        return latest_fallback[1]
+    return None
 
 
 _TRAIN_ARGS = [ModelArguments, DataArguments, TrainingArguments, FinetuningArguments, GeneratingArguments]
@@ -854,6 +891,12 @@ def get_train_args(args: Optional[Union[dict[str, Any], list[str]]] = None) -> _
         and can_resume_from_checkpoint
     ):
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
+        # Hugging Face sometimes reports the bare output_dir; fall back to subdirs.
+        if last_checkpoint is None or last_checkpoint == training_args.output_dir:
+            checkpoint_dir = _latest_checkpoint_subdir(training_args.output_dir)
+            if checkpoint_dir:
+                last_checkpoint = checkpoint_dir
+
         if last_checkpoint is None and any(
             os.path.isfile(os.path.join(training_args.output_dir, name)) for name in CHECKPOINT_NAMES
         ):
