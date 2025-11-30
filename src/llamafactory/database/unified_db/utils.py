@@ -11,7 +11,7 @@ import os
 import json
 import warnings
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from supabase import Client
@@ -685,16 +685,35 @@ def register_trained_model(
 
         agent_name = _unwrap(training_record.get('agent_name'))
         base_model_name = _unwrap(training_record.get('base_model_name'))
-        dataset_name = _unwrap(training_record.get('dataset_name'))
         training_type = _unwrap(training_record.get('training_type'))
         if not agent_name:
             return {"success": False, "error": "agent_name is required"}
         if not base_model_name:
             return {"success": False, "error": "base_model_name is required"}
-        if not dataset_name:
-            return {"success": False, "error": "dataset_name is required"}
         if training_type not in ('SFT', 'RL'):
             return {"success": False, "error": "training_type must be 'SFT' or 'RL'"}
+
+        def _normalize_dataset_list(raw: Any) -> List[str]:
+            if raw is None:
+                return []
+            if isinstance(raw, str):
+                parts = raw.split(',')
+            elif isinstance(raw, (list, tuple, set)):
+                parts = list(raw)
+            else:
+                parts = [raw]
+            normalized: List[str] = []
+            for item in parts:
+                name = str(item).strip()
+                if name and name not in normalized:
+                    normalized.append(name)
+            return normalized
+
+        dataset_list = _normalize_dataset_list(training_record.get('dataset_names'))
+        if not dataset_list:
+            dataset_list = _normalize_dataset_list(training_record.get('dataset_name'))
+        if not dataset_list:
+            return {"success": False, "error": "dataset_name is required"}
 
         def _parse_ts(val):
             if val is None:
@@ -746,18 +765,35 @@ def register_trained_model(
         agent = agent_res['agent']
         agent_id = agent['id']
 
-        ds = get_dataset_by_name(dataset_name)
-        if not ds:
-            ds_res = register_hf_dataset(
-                repo_name=dataset_name,
-                dataset_type=training_type,
-                name=dataset_name,
-                created_by=created_by,
-            )
-            if not ds_res.get('success'):
-                return {"success": False, "error": ds_res.get('error', 'Dataset registration failed')}
-            ds = ds_res['dataset']
-        dataset_id = ds['id']
+        dataset_id: Optional[str] = None
+        dataset_names_csv: Optional[str] = None
+        if len(dataset_list) == 1:
+            dataset_name_single = dataset_list[0]
+            ds = get_dataset_by_name(dataset_name_single)
+            if not ds:
+                ds_res = register_hf_dataset(
+                    repo_name=dataset_name_single,
+                    dataset_type=training_type,
+                    name=dataset_name_single,
+                    created_by=created_by,
+                )
+                if not ds_res.get('success'):
+                    return {"success": False, "error": ds_res.get('error', 'Dataset registration failed')}
+                ds = ds_res['dataset']
+            dataset_id = ds['id']
+        else:
+            dataset_names_csv = ",".join(dataset_list)
+            for name in dataset_list:
+                ds = get_dataset_by_name(name)
+                if not ds:
+                    ds_res = register_hf_dataset(
+                        repo_name=name,
+                        dataset_type=training_type,
+                        name=name,
+                        created_by=created_by,
+                    )
+                    if not ds_res.get('success'):
+                        return {"success": False, "error": ds_res.get('error', 'Dataset registration failed')}
 
         base_m = get_model_by_name(base_model_name)
         if not base_m:
@@ -782,8 +818,9 @@ def register_trained_model(
         if explicit_name:
             model_name = explicit_name
         else:
+            dataset_name_for_default = dataset_list[0]
             date_str = (training_end_dt or training_start_dt).strftime('%Y%m%d')
-            model_name = f"{dataset_name}_{date_str}"
+            model_name = f"{dataset_name_for_default}_{date_str}"
 
         existing = get_model_by_name(model_name)
         now_ts = datetime.now(timezone.utc).isoformat()
@@ -804,6 +841,7 @@ def register_trained_model(
             "agent_id": agent_id,
             "base_model_id": base_model_id,
             "dataset_id": dataset_id,
+            "dataset_names": dataset_names_csv,
             "training_type": training_type,
             "training_start": training_start_dt.isoformat(),
             "training_end": training_end_dt.isoformat() if training_end_dt else None,
