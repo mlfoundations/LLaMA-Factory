@@ -19,6 +19,7 @@
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional, Union
@@ -66,6 +67,30 @@ logger = logging.get_logger(__name__)
 # One-time backend logging switches for CCE
 _cce_backend_logged: int = 0  # 0=unset, 1=cce_backend, 2=fallback
 
+_HF_REPO_ID_PATTERN = re.compile(r"^[\w.-]+(?:/[\w.-]+)?$")
+
+
+def _normalize_hf_repo_id(candidate: Optional[str]) -> Optional[str]:
+    r"""Return a valid Hugging Face repo id or None."""
+    if candidate is None:
+        return None
+
+    stripped = candidate.strip()
+    if not stripped:
+        return None
+
+    if _HF_REPO_ID_PATTERN.match(stripped):
+        return stripped
+
+    normalized = stripped.replace("\\", "/")
+    if "models--" in normalized:
+        repo_chunk = normalized.split("models--", 1)[1].split("/", 1)[0]
+        repo_id = repo_chunk.replace("--", "/")
+        if _HF_REPO_ID_PATTERN.match(repo_id):
+            return repo_id
+
+    return None
+
 
 class DummyOptimizer(torch.optim.Optimizer):
     r"""A dummy optimizer used for the GaLore or APOLLO algorithm."""
@@ -95,9 +120,11 @@ def create_modelcard_and_push(
 ) -> None:
     kwargs = {
         "tasks": "text-generation",
-        "finetuned_from": model_args.model_name_or_path,
         "tags": ["llama-factory", finetuning_args.finetuning_type],
     }
+    finetuned_from = _normalize_hf_repo_id(getattr(model_args, "model_name_or_path", None))
+    if finetuned_from is not None:
+        kwargs["finetuned_from"] = finetuned_from
     if data_args.dataset is not None:
         kwargs["dataset"] = data_args.dataset
 
