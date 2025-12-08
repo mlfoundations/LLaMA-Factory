@@ -766,7 +766,7 @@ def register_trained_model(
         agent_id = agent['id']
 
         dataset_id: Optional[str] = None
-        dataset_names_csv: Optional[str] = None
+        dataset_names_csv: Optional[str] = ",".join(dataset_list)
         if len(dataset_list) == 1:
             dataset_name_single = dataset_list[0]
             ds = get_dataset_by_name(dataset_name_single)
@@ -782,7 +782,6 @@ def register_trained_model(
                 ds = ds_res['dataset']
             dataset_id = ds['id']
         else:
-            dataset_names_csv = ",".join(dataset_list)
             for name in dataset_list:
                 ds = get_dataset_by_name(name)
                 if not ds:
