@@ -797,7 +797,10 @@ def register_trained_model(
 
         base_m = get_model_by_name(base_model_name)
         if not base_m:
-            now_ts = datetime.now(timezone.utc).isoformat()
+            now_dt = datetime.now(timezone.utc)
+            now_ts = now_dt.isoformat()
+            base_training_start = training_start_dt or now_dt
+            base_training_end = training_end_dt or base_training_start
             base_payload = {
                 "name": base_model_name,
                 "created_by": (created_by or (base_model_name.split('/')[0] if '/' in base_model_name else "hf-uploader")),
@@ -811,6 +814,10 @@ def register_trained_model(
                     "source": "huggingface_hub",
                     "registered_at": now_ts,
                 },
+                "agent_id": agent_id,
+                "training_type": training_type,
+                "training_start": base_training_start.isoformat(),
+                "training_end": base_training_end.isoformat(),
             }
             base_m = create_model(base_payload)
         base_model_id = base_m['id']
