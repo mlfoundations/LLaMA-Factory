@@ -237,6 +237,16 @@ class BaseModelArguments:
         default=False,
         metadata={"help": "Whether to trust the execution of code from datasets/models defined on the Hub or not."},
     )
+    custom_model_class: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": (
+                "Fully qualified custom model class to use instead of Auto* classes. "
+                "Example: 'qwen3_moe_fused.modular_qwen3_moe_fused.Qwen3MoeFusedForCausalLM'. "
+                "Requires trust_remote_code=true and the package must be installed."
+            )
+        },
+    )
 
     def __post_init__(self):
         if self.model_name_or_path is None:

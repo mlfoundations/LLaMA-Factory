@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import importlib
 from typing import TYPE_CHECKING, Any, Optional, TypedDict
 
 import torch
@@ -49,6 +50,32 @@ if TYPE_CHECKING:
 
 
 logger = logging.get_logger(__name__)
+
+
+def _load_custom_model_class(class_path: str):
+    """Dynamically import and return a custom model class.
+
+    Args:
+        class_path: Fully qualified class path, e.g.,
+                   'qwen3_moe_fused.modular_qwen3_moe_fused.Qwen3MoeFusedForCausalLM'
+
+    Returns:
+        The model class.
+
+    Raises:
+        ImportError: If the module or class cannot be found.
+    """
+    try:
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        model_class = getattr(module, class_name)
+        logger.info_rank0(f"Loaded custom model class: {class_path}")
+        return model_class
+    except (ValueError, ImportError, AttributeError) as e:
+        raise ImportError(
+            f"Failed to load custom model class '{class_path}'. "
+            f"Ensure the package is installed and the class path is correct. Error: {e}"
+        ) from e
 
 
 def _requires_cpu_first_loading() -> bool:
@@ -212,7 +239,10 @@ def load_model(
         if model_args.mixture_of_depths == "load":
             model = load_mod_pretrained_model(**init_kwargs)
         else:
-            if type(config) in AutoModelForImageTextToText._model_mapping.keys():  # image-text
+            # Check for custom model class first
+            if model_args.custom_model_class is not None:
+                load_class = _load_custom_model_class(model_args.custom_model_class)
+            elif type(config) in AutoModelForImageTextToText._model_mapping.keys():  # image-text
                 load_class = AutoModelForImageTextToText
             elif type(config) in AutoModelForVision2Seq._model_mapping.keys():  # image-text
                 load_class = AutoModelForVision2Seq

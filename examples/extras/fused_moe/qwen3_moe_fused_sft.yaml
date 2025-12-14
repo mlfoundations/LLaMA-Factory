@@ -1,0 +1,71 @@
+### Qwen3-MoE SFT with Fused MoE Kernel
+###
+### This config demonstrates training Qwen3-MoE models with the fused MoE kernel
+### for ~5x speedup over the default HuggingFace implementation.
+###
+### Prerequisites:
+###   1. Convert model to fused format (one-time):
+###      python -c "from qwen3_moe_fused.convert import convert_model_to_fused; \
+###                 convert_model_to_fused('Qwen/Qwen3-30B-A3B', '/path/to/Qwen3-30B-A3B-fused')"
+###
+###   2. Install the fused kernel package:
+###      pip install git+https://github.com/woct0rdho/transformers-qwen3-moe-fused.git
+###
+### Post-training:
+###   Convert back to standard format for inference:
+###      python -c "from qwen3_moe_fused.convert import convert_model_to_unfused; \
+###                 convert_model_to_unfused('/path/to/output', '/path/to/output-unfused')"
+###
+### Usage:
+###   llamafactory-cli train examples/extras/fused_moe/qwen3_moe_fused_sft.yaml
+
+### Model
+model_name_or_path: /path/to/Qwen3-30B-A3B-fused  # Path to pre-converted fused model
+custom_model_class: qwen3_moe_fused.modular_qwen3_moe_fused.Qwen3MoeFusedForCausalLM
+trust_remote_code: true
+
+### Attention & Kernels
+attn: fa2
+enable_liger_kernel: true
+
+### Method
+stage: sft
+do_train: true
+finetuning_type: full
+deepspeed: examples/deepspeed/ds_z2_config.json  # Use ZeRO-2 for MoE (ZeRO-3 incompatible)
+
+### Dataset
+### Replace with your dataset
+dataset: identity
+template: qwen3
+cutoff_len: 4096
+overwrite_cache: true
+preprocessing_num_workers: 16
+dataloader_persistent_workers: true
+dataloader_pin_memory: true
+dataloader_num_workers: 4
+
+### Output
+output_dir: outputs/qwen3_moe_fused_sft
+logging_steps: 5
+save_strategy: steps
+save_steps: 200
+save_total_limit: 2
+logging_strategy: steps
+plot_loss: true
+
+### Training hyperparameters
+pure_bf16: true
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 4.0e-5
+num_train_epochs: 3.0
+max_grad_norm: 1.0
+lr_scheduler_type: cosine
+warmup_ratio: 0.1
+bf16: true
+gradient_checkpointing: true
+ddp_timeout: 180000000
+
+### Optimizer
+optim: adamw_torch_fused
