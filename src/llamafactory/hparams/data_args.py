@@ -43,6 +43,28 @@ class DataArguments:
         default="data",
         metadata={"help": "Path to the folder containing the datasets."},
     )
+    prompt_column: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Column name containing the instruction/prompt for Alpaca-style datasets. Use '' or 'none' to disable."
+        },
+    )
+    query_column: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Column name containing the optional user input/query for Alpaca-style datasets. Use '' or 'none' to disable."
+        },
+    )
+    response_column: Optional[str] = field(
+        default=None,
+        metadata={"help": "Column name containing the model response/completion for Alpaca-style datasets."},
+    )
+    history_column: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Column name containing serialized conversation history for Alpaca-style datasets. Use '' or 'none' to disable."
+        },
+    )
     formatting: Optional[Literal["alpaca", "sharegpt"]] = field(
         default=None,
         metadata={"help": "Formatting style of the dataset used by the parser (e.g. 'sharegpt')."},
