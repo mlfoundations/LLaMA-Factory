@@ -95,6 +95,16 @@ class DatasetAttr:
 
 
 def _apply_data_args_overrides(dataset_attr: "DatasetAttr", data_args: "DataArguments") -> None:
+    def _column_override(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "" or stripped.lower() == "none":
+                return None
+            return stripped
+        return value
+
     if data_args.formatting is not None:
         dataset_attr.formatting = data_args.formatting
     if data_args.messages is not None:
@@ -109,6 +119,18 @@ def _apply_data_args_overrides(dataset_attr: "DatasetAttr", data_args: "DataArgu
         dataset_attr.assistant_tag = data_args.assistant_tag
     if data_args.system is not None:
         dataset_attr.system = data_args.system
+    prompt_override = _column_override(getattr(data_args, "prompt_column", None))
+    if prompt_override is not None or getattr(data_args, "prompt_column", None) is not None:
+        dataset_attr.prompt = prompt_override
+    query_override = _column_override(getattr(data_args, "query_column", None))
+    if query_override is not None or getattr(data_args, "query_column", None) is not None:
+        dataset_attr.query = query_override
+    response_override = _column_override(getattr(data_args, "response_column", None))
+    if response_override is not None or getattr(data_args, "response_column", None) is not None:
+        dataset_attr.response = response_override
+    history_override = _column_override(getattr(data_args, "history_column", None))
+    if history_override is not None or getattr(data_args, "history_column", None) is not None:
+        dataset_attr.history = history_override
     if data_args.subset is not None:
         dataset_attr.subset = data_args.subset
 
