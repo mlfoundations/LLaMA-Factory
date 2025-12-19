@@ -40,6 +40,14 @@ class DatasetConverter:
     dataset_attr: "DatasetAttr"
     data_args: "DataArguments"
 
+    def _safe_get(self, example: dict[str, Any], column: Optional[str]) -> Any:
+        if not column:
+            return None
+        try:
+            return example[column]
+        except KeyError:
+            return None
+
     def _find_medias(self, medias: Union["MediaType", list["MediaType"], None]) -> Optional[list["MediaType"]]:
         r"""Optionally concatenate media path to media dir when loading from local disk."""
         if medias is None:
@@ -85,37 +93,43 @@ class DatasetConverter:
 class AlpacaDatasetConverter(DatasetConverter):
     def __call__(self, example: dict[str, Any]) -> dict[str, Any]:
         prompt = []
-        if self.dataset_attr.history and isinstance(example[self.dataset_attr.history], list):
-            for old_prompt, old_response in example[self.dataset_attr.history]:
+        history_entries = self._safe_get(example, self.dataset_attr.history)
+        if history_entries and isinstance(history_entries, list):
+            for old_prompt, old_response in history_entries:
                 prompt.append({"role": Role.USER.value, "content": old_prompt})
                 prompt.append({"role": Role.ASSISTANT.value, "content": old_response})
 
         query = []
-        if self.dataset_attr.prompt and example[self.dataset_attr.prompt]:
-            query.append(example[self.dataset_attr.prompt])
+        prompt_value = self._safe_get(example, self.dataset_attr.prompt)
+        if prompt_value:
+            query.append(prompt_value)
 
-        if self.dataset_attr.query and example[self.dataset_attr.query]:
-            query.append(example[self.dataset_attr.query])
+        query_value = self._safe_get(example, self.dataset_attr.query)
+        if query_value:
+            query.append(query_value)
 
         prompt.append({"role": Role.USER.value, "content": "\n".join(query)})  # "prompt\nquery"
 
-        if self.dataset_attr.kto_tag and isinstance(example[self.dataset_attr.kto_tag], bool):  # kto example
-            response = [{"role": Role.ASSISTANT.value, "content": example[self.dataset_attr.response]}]
-            if example[self.dataset_attr.kto_tag]:
+        kto_flag = self._safe_get(example, self.dataset_attr.kto_tag)
+        response_value = self._safe_get(example, self.dataset_attr.response) or ""
+
+        if isinstance(kto_flag, bool):  # kto example
+            response = [{"role": Role.ASSISTANT.value, "content": response_value}]
+            if kto_flag:
                 response = response + [{"role": Role.ASSISTANT.value, "content": ""}]
             else:
                 response = [{"role": Role.ASSISTANT.value, "content": ""}] + response
         elif (
             self.dataset_attr.ranking
-            and isinstance(example[self.dataset_attr.chosen], str)
-            and isinstance(example[self.dataset_attr.rejected], str)
+            and isinstance(self._safe_get(example, self.dataset_attr.chosen), str)
+            and isinstance(self._safe_get(example, self.dataset_attr.rejected), str)
         ):  # pairwise example
             response = [
                 {"role": Role.ASSISTANT.value, "content": example[self.dataset_attr.chosen]},
                 {"role": Role.ASSISTANT.value, "content": example[self.dataset_attr.rejected]},
             ]
-        elif self.dataset_attr.response and isinstance(example[self.dataset_attr.response], str):  # normal example
-            response = [{"role": Role.ASSISTANT.value, "content": example[self.dataset_attr.response]}]
+        elif isinstance(response_value, str):  # normal example
+            response = [{"role": Role.ASSISTANT.value, "content": response_value}]
         else:  # unsupervised
             response = []
 
