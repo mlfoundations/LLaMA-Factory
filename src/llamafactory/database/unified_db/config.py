@@ -94,20 +94,28 @@ def create_supabase_client(use_admin: bool = False) -> Client:
         # Older supabase-py releases do not accept timeout kwargs.
         options = None
 
-    if options is not None and not hasattr(options, "storage"):
-        # Some supabase-py versions expect options.storage to exist during client creation.
-        try:
-            setattr(options, "storage", None)
-        except Exception:
-            options = None
+    if options is not None:
+        # Some supabase-py versions expect extra attributes to exist during client creation.
+        for attr in ("storage", "httpx_client"):
+            if not hasattr(options, attr):
+                try:
+                    setattr(options, attr, None)
+                except Exception:
+                    options = None
+                    break
 
     if options is not None:
         try:
             return create_client(supabase_config.supabase_url, key, options)
         except AttributeError as exc:
-            if "'ClientOptions' object has no attribute 'storage'" not in str(exc):
+            if (
+                "'ClientOptions' object has no attribute 'storage'" not in str(exc)
+                and "'ClientOptions' object has no attribute 'httpx_client'" not in str(exc)
+            ):
                 raise
-            logger.debug("Supabase client options missing storage attribute; retrying without custom options.")
+            logger.debug(
+                "Supabase client options missing expected attributes; retrying without custom options."
+            )
 
     return create_client(supabase_config.supabase_url, key)
 
