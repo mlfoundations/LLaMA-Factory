@@ -9,6 +9,7 @@ with support for both HuggingFace and local parquet file datasets.
 import logging
 import os
 import json
+import re
 import warnings
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -107,6 +108,25 @@ def get_supabase_client(use_admin: bool = False) -> Client:
     return get_default_client()
 
 
+def _extract_hf_repo_from_cache_path(path: str) -> Optional[str]:
+    """Extract HF repo ID from a HuggingFace cache directory path.
+
+    HF cache paths follow the structure:
+        <cache_dir>/datasets--<org>--<repo_name>/snapshots/<hash>[_suffix]
+
+    For example:
+        /data/.../datasets--DCAgent2--my-dataset/snapshots/abc123_thinking_preprocessed
+        -> "DCAgent2/my-dataset"
+
+    Returns:
+        HF repo ID like "org/repo_name", or None if not a recognizable cache path.
+    """
+    match = re.search(r"datasets--([^/]+)--([^/]+)(?:/|$)", path)
+    if match:
+        return f"{match.group(1)}/{match.group(2)}"
+    return None
+
+
 # ==================== DATASET UTILITIES ====================
 
 def get_dataset_by_name(name: str) -> Optional[Dict[str, Any]]:
@@ -178,6 +198,31 @@ def register_hf_dataset(
         except ImportError:
             raise ImportError("datasets and huggingface_hub libraries required for HF dataset registration.")
 
+        # Detect local paths (e.g. thinking-preprocessed snapshots in HF cache)
+        # and extract the original HF repo ID for metadata lookup.
+        local_data_path = None
+        if os.path.isabs(repo_name):
+            local_data_path = repo_name
+            extracted_repo = _extract_hf_repo_from_cache_path(repo_name)
+            if extracted_repo:
+                logger.info(f"Extracted HF repo ID '{extracted_repo}' from local path: {repo_name}")
+                repo_name = extracted_repo
+            else:
+                logger.warning(
+                    f"Local path '{repo_name}' does not match HF cache structure. "
+                    "Falling back to local parquet registration."
+                )
+                return register_local_parquet(
+                    dataset_path=repo_name,
+                    dataset_type=dataset_type,
+                    name=name,
+                    created_by=created_by,
+                    data_generation_hash=data_generation_hash,
+                    generation_parameters=generation_parameters,
+                    forced_update=forced_update,
+                    **kwargs,
+                )
+
         logger.info(f"Registering HuggingFace dataset: {repo_name}")
 
         dataset_name = name or repo_name
@@ -186,23 +231,25 @@ def register_hf_dataset(
             logger.info(f"Dataset {dataset_name} already exists")
             return {"success": True, "dataset": existing, "exists": True}
 
+        hf_info = None
         try:
             hf_info = dataset_info(repo_name)
             logger.info(f"Retrieved HF metadata for {repo_name}")
         except Exception as e:
-            logger.error(f"Failed to get HF dataset info for {repo_name}: {e}")
-            return {"success": False, "error": f"Could not access HuggingFace dataset {repo_name}: {e}"}
+            logger.warning(f"Could not get HF dataset info for {repo_name}: {e}")
 
+        # Load dataset from local path if available, otherwise from HF hub
+        load_path = local_data_path or repo_name
         num_tasks = None
         try:
-            dataset = load_dataset(repo_name)['train']
+            dataset = load_dataset(load_path)['train']
             if hasattr(dataset, '__len__'):
                 num_tasks = len(dataset)
             elif hasattr(dataset, 'num_rows'):
                 num_tasks = dataset.num_rows
             logger.info(f"Dataset size: {num_tasks} rows")
         except Exception as e:
-            logger.warning(f"Could not determine dataset size for {repo_name}: {e}")
+            logger.warning(f"Could not determine dataset size for {load_path}: {e}")
             num_tasks = None
 
         if not created_by:
@@ -218,11 +265,13 @@ def register_hf_dataset(
             "registered_at": datetime.now(timezone.utc).isoformat(),
             "hf_metadata": {
                 "fingerprint": getattr(dataset, '_fingerprint', None) if 'dataset' in locals() else None,
-                "commit_hash": getattr(hf_info, 'sha', None),
-                "tags": getattr(hf_info, 'tags', []),
-                "description": getattr(hf_info, 'description', ''),
+                "commit_hash": getattr(hf_info, 'sha', None) if hf_info else None,
+                "tags": getattr(hf_info, 'tags', []) if hf_info else [],
+                "description": getattr(hf_info, 'description', '') if hf_info else '',
             }
         }
+        if local_data_path:
+            auto_params["local_path"] = local_data_path
 
         if generation_parameters:
             auto_params.update(generation_parameters)
@@ -240,7 +289,7 @@ def register_hf_dataset(
             "generation_start": generation_start.isoformat() if generation_start else None,
             "generation_end": generation_end.isoformat() if generation_end else None,
             "hf_fingerprint": getattr(dataset, '_fingerprint', None) if 'dataset' in locals() else None,
-            "hf_commit_hash": getattr(hf_info, 'sha', None),
+            "hf_commit_hash": getattr(hf_info, 'sha', None) if hf_info else None,
             "num_tasks": num_tasks,
             "dataset_type": dataset_type,
             "data_generation_hash": data_generation_hash,
