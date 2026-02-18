@@ -46,6 +46,24 @@ def configure_rope(config: "PretrainedConfig", model_args: "ModelArguments") -> 
         logger.warning_rank0("Cannot find the max position embeddings in the config.")
         return
 
+    # Dict path: user provided explicit rope_scaling parameters (e.g. from YAML).
+    # Pass through directly, only updating max_position_embeddings.
+    if isinstance(model_args.rope_scaling, dict):
+        rope_kwargs = dict(model_args.rope_scaling)  # shallow copy
+        rope_factor = float(rope_kwargs.get("factor", 2.0))
+        if "original_max_position_embeddings" not in rope_kwargs:
+            rope_kwargs["original_max_position_embeddings"] = old_max_length
+        new_max_length = int(old_max_length * rope_factor)
+        setattr(config, "max_position_embeddings", new_max_length)
+        setattr(config, "rope_scaling", rope_kwargs)
+        logger.info_rank0(f"Enlarge max model length from {old_max_length} to {new_max_length}.")
+        logger.info_rank0(
+            f"Using {rope_kwargs.get('rope_type', 'unknown')} scaling strategy"
+            f" and setting scaling factor to {rope_factor}."
+        )
+        return
+
+    # String/enum path: auto-compute factor from model_max_length.
     if model_args.model_max_length is not None:  # training
         if model_args.model_max_length <= old_max_length:
             logger.warning_rank0("Input length is smaller than max length. Disabling rope scaling.")
