@@ -67,6 +67,14 @@ def run_sft(
     )
     validate_padding_config(optimal_padding, model_args)
 
+    # Sequence parallelism requires fixed-length padding so all SP ranks have identical
+    # tensor shapes during all_gather.  Dynamic padding produces different lengths on
+    # different DP ranks, causing shape mismatches in DeepSpeed Ulysses.
+    sp_padding_kwargs = {}
+    if model_args.sequence_parallel_size > 1:
+        sp_padding_kwargs["padding"] = "max_length"
+        sp_padding_kwargs["max_length"] = data_args.cutoff_len
+
     data_collator = SFTDataCollatorWith4DAttentionMask(
         template=template,
         model=model if not training_args.predict_with_generate else None,
@@ -76,6 +84,7 @@ def run_sft(
         attn_implementation=getattr(model.config, "_attn_implementation", None),
         compute_dtype=model_args.compute_dtype,
         require_position_ids=model_args.sequence_parallel_size > 1,
+        **sp_padding_kwargs,
         **tokenizer_module,
     )
 
