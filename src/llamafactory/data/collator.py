@@ -245,6 +245,18 @@ class SFTDataCollatorWith4DAttentionMask(MultiModalDataCollatorForSeq2Seq):
         if not self.require_position_ids:
             features = [{k: v for k, v in d.items() if k != "position_ids"} for d in features]
         features = super().__call__(features)
+
+        # tokenizer.pad() does not know about position_ids, so it is left unpadded.
+        # For sequence-parallel (Ulysses) all_gather, every tensor in the batch must
+        # have the same sequence length across all ranks.  Pad position_ids to match
+        # the (already padded) input_ids length.
+        if self.require_position_ids and "position_ids" in features and "input_ids" in features:
+            seq_len = features["input_ids"].shape[-1]
+            pos_len = features["position_ids"].shape[-1]
+            if pos_len < seq_len:
+                pad_size = seq_len - pos_len
+                features["position_ids"] = F.pad(features["position_ids"], (0, pad_size), value=0)
+
         if self.block_diag_attn and self.attn_implementation != "flash_attention_2":
             features["attention_mask"] = prepare_4d_attention_mask(features["attention_mask"], self.compute_dtype)
 
