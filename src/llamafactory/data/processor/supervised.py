@@ -164,10 +164,19 @@ class SupervisedDatasetProcessor(DatasetProcessor):
         kept = len(model_inputs["input_ids"]) if "input_ids" in model_inputs else 0
         total = kept + dropped_no_target
         if kept == 0:
-            raise ValueError(
+            logger.warning_rank0(
                 "All samples were filtered out during preprocessing because they contained no target tokens. "
-                "Consider reducing cutoff_len, enabling mask_history, or adjusting your dataset."
+                "Skipping this batch. Consider reducing cutoff_len, enabling mask_history, or adjusting your dataset."
             )
+            return {
+                "input_ids": [],
+                "attention_mask": [],
+                "position_ids": [],
+                "labels": [],
+                "images": [],
+                "videos": [],
+                "audios": [],
+            }
         logger.info_rank0(
             f"Supervised preprocessing: kept {kept}/{total} samples (dropped {dropped_no_target} with no targets)."
         )
