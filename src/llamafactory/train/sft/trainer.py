@@ -111,6 +111,20 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 self.alst_data_adapter = create_alst_data_adapter(model_args, self.alst_config, None)
                 self.alst_loss_handler = None  # Will be created when sequence parallel group is available
                 logger.info_rank0("ALST data adapter initialized for trainer")
+
+                # Force ignore_data_skip when ALST is active. The Ulysses
+                # UlyssesSPDataLoaderAdapter is not a standard DataLoader and
+                # does not expose .dataset / .batch_sampler, so HF Trainer's
+                # skip_first_batches() crashes on resume.  Instead we restart
+                # from the beginning of the current epoch — the optimizer /
+                # scheduler / RNG states are still restored from the checkpoint,
+                # so the only cost is re-processing earlier batches in that epoch.
+                if hasattr(self.args, "ignore_data_skip"):
+                    self.args.ignore_data_skip = True
+                    logger.info_rank0(
+                        "Set ignore_data_skip=True for ALST: on resume, training restarts "
+                        "from the beginning of the current epoch (optimizer state is preserved)."
+                    )
             else:
                 self.alst_data_adapter = None
                 self.alst_loss_handler = None
