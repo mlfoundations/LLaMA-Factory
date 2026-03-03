@@ -12,11 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import os
 from typing import TYPE_CHECKING, Literal, Optional, Union
 
 import numpy as np
 from datasets import Dataset, load_dataset, load_from_disk
+
+# Newer versions of the datasets library removed the trust_remote_code parameter.
+_LOAD_DATASET_ACCEPTS_TRUST_REMOTE_CODE = (
+    "trust_remote_code" in inspect.signature(load_dataset).parameters
+)
 
 from ..extras import logging
 from ..extras.constants import FILEEXT2TYPE
@@ -132,7 +138,7 @@ def _load_single_dataset(
     else:
         # Use datasets_cache_dir from data_args if set, otherwise fall back to model_args.cache_dir
         hf_cache_dir = data_args.datasets_cache_dir or model_args.cache_dir
-        dataset = load_dataset(
+        _load_kwargs = dict(
             path=data_path,
             name=data_name,
             data_dir=data_dir,
@@ -141,9 +147,11 @@ def _load_single_dataset(
             cache_dir=hf_cache_dir,
             token=model_args.hf_hub_token,
             num_proc=data_args.preprocessing_num_workers,
-            trust_remote_code=model_args.trust_remote_code,
             streaming=data_args.streaming and dataset_attr.load_from != "file",
         )
+        if _LOAD_DATASET_ACCEPTS_TRUST_REMOTE_CODE:
+            _load_kwargs["trust_remote_code"] = model_args.trust_remote_code
+        dataset = load_dataset(**_load_kwargs)
         if data_args.streaming and dataset_attr.load_from == "file":
             dataset = dataset.to_iterable_dataset(num_shards=training_args.dataloader_num_workers)
 
