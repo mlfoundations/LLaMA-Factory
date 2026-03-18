@@ -209,7 +209,9 @@ class BaseModelArguments:
         default="offload",
         metadata={"help": "Path to offload model weights."},
     )
-    use_cache: bool = field(
+    # Renamed from use_cache to avoid argparse conflict with transformers v5's
+    # TrainingArguments which also defines --use_cache
+    infer_use_cache: bool = field(
         default=True,
         metadata={"help": "Whether or not to use KV cache in generation."},
     )
