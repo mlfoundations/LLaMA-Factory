@@ -29,9 +29,15 @@ from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR, has_length
 from transformers.utils import (
     SAFE_WEIGHTS_NAME,
     WEIGHTS_NAME,
-    is_safetensors_available,
 )
 from typing_extensions import override
+
+# is_safetensors_available was removed in transformers v5 (safetensors is always available)
+try:
+    from transformers.utils import is_safetensors_available
+except ImportError:
+    def is_safetensors_available():
+        return True
 
 from ..extras import logging
 from ..extras.constants import TRAINER_LOG, V_HEAD_SAFE_WEIGHTS_NAME, V_HEAD_WEIGHTS_NAME
