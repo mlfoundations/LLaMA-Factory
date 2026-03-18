@@ -82,6 +82,11 @@ extra_require = {
     "fp8": ["torchao>=0.8.0", "accelerate>=1.10.0"],
     "fp8-te": ["transformer_engine[pytorch]>=2.0.0", "accelerate>=1.10.0"],
     "hf-kernels": ["kernels>=0.9.0"],
+    "qwen3-5": [
+        "transformers>=5.3.0",
+        "flash-linear-attention",
+        "causal-conv1d",
+    ],
     "fsdp": [
         "torch>=2.4.0,<3.0.0",
         "accelerate>=1.0.0",
