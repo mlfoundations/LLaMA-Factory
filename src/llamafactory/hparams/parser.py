@@ -887,7 +887,7 @@ def get_train_args(args: Optional[Union[dict[str, Any], list[str]]] = None) -> _
         training_args.resume_from_checkpoint is None
         and training_args.do_train
         and os.path.isdir(training_args.output_dir)
-        and not training_args.overwrite_output_dir
+        and not getattr(training_args, "overwrite_output_dir", False)
         and can_resume_from_checkpoint
     ):
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
