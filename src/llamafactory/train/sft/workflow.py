@@ -98,7 +98,9 @@ def run_sft(
 
     # Keyword arguments for `model.generate`
     gen_kwargs = generating_args.to_dict(obey_generation_config=True)
-    gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + tokenizer.additional_special_tokens_ids
+    # additional_special_tokens_ids was removed from TokenizersBackend in transformers v5
+    additional_ids = getattr(tokenizer, "additional_special_tokens_ids", []) or []
+    gen_kwargs["eos_token_id"] = [tokenizer.eos_token_id] + list(additional_ids)
     gen_kwargs["pad_token_id"] = tokenizer.pad_token_id
 
     # Initialize our Trainer
