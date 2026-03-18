@@ -36,7 +36,13 @@ from .callbacks.qat import get_qat_callback
 from .callbacks_module import LogCallback, PissaConvertCallback, ReporterCallback
 from .dpo import run_dpo
 from .kto import run_kto
-from .ppo import run_ppo
+# PPO imports are deferred: trl >= 0.20 removed PPOConfig/PPOTrainer.
+# Only import when actually running PPO training.
+try:
+    from .ppo import run_ppo
+except ImportError:
+    def run_ppo(*args, **kwargs):
+        raise ImportError("PPO training requires trl < 0.20 (PPOConfig/PPOTrainer were removed in newer versions)")
 from .pt import run_pt
 from .rm import run_rm
 from .sft import run_sft
