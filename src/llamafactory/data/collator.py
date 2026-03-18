@@ -189,6 +189,11 @@ class MultiModalDataCollatorForSeq2Seq(DataCollatorForSeq2Seq):
                 "video_grid_thw": mm_inputs.get("video_grid_thw"),
                 "attention_mask": (features["attention_mask"] >= 1).float(),
             }
+            # Qwen3.5 requires mm_token_type_ids for get_rope_index (even for text-only)
+            if "mm_token_type_ids" in mm_inputs:
+                rope_index_kwargs["mm_token_type_ids"] = mm_inputs["mm_token_type_ids"]
+            elif getattr(self.model.config, "model_type", None) in ("qwen3_5",):
+                rope_index_kwargs["mm_token_type_ids"] = None
             if "second_per_grid_ts" in mm_inputs:  # for qwen2vl
                 rope_index_kwargs["second_per_grid_ts"] = mm_inputs.get("second_per_grid_ts")
             elif "video_second_per_grid" in mm_inputs:  # for qwen2.5 omni
