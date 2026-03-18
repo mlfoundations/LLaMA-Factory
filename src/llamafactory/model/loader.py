@@ -23,11 +23,20 @@ from transformers import (
     AutoModelForImageTextToText,
     AutoModelForSeq2SeqLM,
     AutoModelForTextToWaveform,
-    AutoModelForVision2Seq,
     AutoProcessor,
     AutoTokenizer,
 )
-from trl import AutoModelForCausalLMWithValueHead
+
+# AutoModelForVision2Seq was removed in transformers v5 (superseded by AutoModelForImageTextToText)
+try:
+    from transformers import AutoModelForVision2Seq
+except ImportError:
+    AutoModelForVision2Seq = AutoModelForImageTextToText
+# AutoModelForCausalLMWithValueHead was removed in trl >= 0.20 (only used for PPO, not SFT)
+try:
+    from trl import AutoModelForCausalLMWithValueHead
+except ImportError:
+    AutoModelForCausalLMWithValueHead = None
 
 from ..extras import logging
 from ..extras.misc import count_parameters, skip_check_imports, try_download_model_from_other_hub
