@@ -14,7 +14,14 @@
 
 from typing import TYPE_CHECKING, Optional
 
-from transformers.utils import is_flash_attn_2_available, is_flash_attn_3_available, is_torch_sdpa_available
+from transformers.utils import is_flash_attn_2_available, is_flash_attn_3_available
+
+# is_torch_sdpa_available was removed in transformers v5 (SDPA is always available with PyTorch >= 2.0)
+try:
+    from transformers.utils import is_torch_sdpa_available
+except ImportError:
+    def is_torch_sdpa_available():
+        return True
 
 from ...extras import logging
 from ...extras.constants import AttentionImplementation
