@@ -149,6 +149,16 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             from ..trainer_utils import cce_loss_func
 
             self.compute_loss_func = cce_loss_func
+            # Disable the model's internal loss computation so that the
+            # trainer's compute_loss_func (CCE) is used instead.
+            # Without this, the model's forward() computes cross_entropy
+            # internally, materializing the full [seq_len × vocab_size]
+            # logits tensor and OOMing before CCE can intervene.
+            if hasattr(self.model, "config"):
+                self.model.config.loss_type = None
+                logger.info_rank0("Set model.config.loss_type = None to defer loss to CCE.")
+            # Also tell the trainer not to pass labels to the model forward
+            self.model_accepts_loss_kwargs = False
             logger.info_rank0("Cut Cross-Entropy enabled: using memory-efficient loss on standard SFT path.")
 
         # Verify FP8 status after trainer initialization (accelerator should be available)
