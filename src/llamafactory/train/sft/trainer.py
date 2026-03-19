@@ -220,16 +220,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
             def _intercept_lm_head(module, input, output):
                 # Post-forward hook: capture the input hidden states and the
-                # gathered weight (FSDP has full weight during forward), then
-                # replace the output with a tiny dummy to avoid keeping the
-                # 30+ GiB logits tensor in memory.
+                # weight reference. Do NOT clone/detach — that breaks FSDP state.
                 hidden_input = input[0] if isinstance(input, tuple) else input
                 captured["hidden"] = hidden_input
-                captured["lm_weight"] = module.weight.detach().clone()
+                captured["lm_weight"] = module.weight
                 # Return dummy logits (1 class) — the real loss uses linear_cross_entropy
                 return torch.zeros(
                     hidden_input.shape[0], hidden_input.shape[1], 1,
                     device=hidden_input.device, dtype=hidden_input.dtype,
+                    requires_grad=True,
                 )
 
             # Find lm_head
