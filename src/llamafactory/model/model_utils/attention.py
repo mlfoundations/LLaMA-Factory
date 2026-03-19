@@ -36,12 +36,19 @@ if TYPE_CHECKING:
 logger = logging.get_logger(__name__)
 
 
+def _is_kernel_pattern(attn_value: str) -> bool:
+    """Check if the attention value matches a HuggingFace kernel pattern (org/repo)."""
+    import re
+
+    return re.search(r"^[^/:]+/[^/:]+(?:@[^/:]+)?(?::[^/:]+)?$", attn_value) is not None
+
+
 def is_flash_attention_enabled(config: "PretrainedConfig", model_args: "ModelArguments") -> bool:
     """Return True if FlashAttention (v2 or v3) is active via implementation or HF kernel.
 
     Checks, in order of reliability:
     - Explicit implementation set on config ("flash_attention_2" or "flash_attention_3").
-    - HuggingFace kernel specified on config containing "flash-attn".
+    - HuggingFace kernel pattern containing "flash-attn" in _attn_implementation.
     - Fallback to user arg value (fa2/fa3) if config fields are missing.
     """
     # Prefer config implementation if set
@@ -52,9 +59,8 @@ def is_flash_attention_enabled(config: "PretrainedConfig", model_args: "ModelArg
     if attn_impl in ("flash_attention_2", "flash_attention_3"):
         return True
 
-    # Check HF kernel path
-    hf_kernel = getattr(config, "_hf_kernel", None)
-    if isinstance(hf_kernel, str) and "flash-attn" in hf_kernel.lower():
+    # Check if it's a HF kernel pattern containing flash-attn
+    if isinstance(attn_impl, str) and "flash-attn" in attn_impl.lower():
         return True
 
     # Fallback to raw argument string if present
@@ -76,22 +82,23 @@ def configure_attn_implementation(config: "PretrainedConfig", model_args: "Model
     else:
         attn_value = model_args.attn.strip()
 
-        # Check if it's a HuggingFace kernel (contains '/' or starts with 'hf:')
-        if (
-            "/" in attn_value
-            or attn_value.startswith("hf:")
-            or any(kernel_word in attn_value for kernel_word in ["kernel", "flash", "attn"])
-        ):
-            # Handle HuggingFace kernel
+        # Check if it's a HuggingFace kernel pattern (org/repo style).
+        # In transformers v5, setting _attn_implementation to the kernel string
+        # (e.g. "kernels-community/flash-attn2") triggers automatic kernel loading
+        # and registration in ALL_ATTENTION_FUNCTIONS during model init.
+        if _is_kernel_pattern(attn_value) or attn_value.startswith("hf:"):
             kernel_name = attn_value[3:] if attn_value.startswith("hf:") else attn_value
+            # Validate the kernel is loadable before setting it
             try:
                 from kernels import get_kernel
 
                 kernel_impl = get_kernel(kernel_name)
                 if kernel_impl is not None:
-                    logger.info_rank0(f"Using HuggingFace kernel: {kernel_name}")
-                    setattr(config, "_hf_kernel", kernel_name)
-                    return
+                    logger.info_rank0(
+                        f"Using HuggingFace kernel: {kernel_name} "
+                        f"(transformers v5 will auto-register in AttentionInterface)"
+                    )
+                    requested_attn_implementation = kernel_name
                 else:
                     logger.warning_rank0(
                         f"HuggingFace kernel '{kernel_name}' not found. Falling back to eager attention."
@@ -99,7 +106,8 @@ def configure_attn_implementation(config: "PretrainedConfig", model_args: "Model
                     requested_attn_implementation = "eager"
             except ImportError:
                 logger.warning_rank0(
-                    "HuggingFace kernels not available. Install with: pip install -e .[hf-kernels]. Falling back to eager attention."
+                    "HuggingFace kernels not available. Install with: pip install -e .[hf-kernels]. "
+                    "Falling back to eager attention."
                 )
                 requested_attn_implementation = "eager"
             except Exception as e:
@@ -154,18 +162,14 @@ def configure_attn_implementation(config: "PretrainedConfig", model_args: "Model
 
 
 def print_attn_implementation(config: "PretrainedConfig") -> None:
-    # Check for HuggingFace kernel first
-    hf_kernel = getattr(config, "_hf_kernel", None)
-    if hf_kernel is not None:
-        logger.info_rank0(f"Using HuggingFace kernel: {hf_kernel} for faster training and inference.")
-        return
-
     if getattr(config, "model_type", None) == "internlm2":  # special case for custom models
         attn_implementation = getattr(config, "attn_implementation", None)
     else:
         attn_implementation = getattr(config, "_attn_implementation", None)
 
-    if attn_implementation == "flash_attention_2":
+    if attn_implementation and _is_kernel_pattern(attn_implementation):
+        logger.info_rank0(f"Using HuggingFace kernel: {attn_implementation} for faster training and inference.")
+    elif attn_implementation == "flash_attention_2":
         logger.info_rank0("Using FlashAttention-2 for faster training and inference.")
     elif attn_implementation == "flash_attention_3":
         logger.info_rank0("Using FlashAttention-3 for faster training and inference.")
