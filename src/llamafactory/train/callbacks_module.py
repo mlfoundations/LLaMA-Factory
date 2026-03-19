@@ -235,7 +235,7 @@ class LogCallback(TrainerCallback):
         if (
             args.should_save
             and os.path.exists(os.path.join(args.output_dir, TRAINER_LOG))
-            and args.overwrite_output_dir
+            and getattr(args, "overwrite_output_dir", False)
         ):
             logger.warning_rank0_once("Previous trainer log in this folder will be deleted.")
             os.remove(os.path.join(args.output_dir, TRAINER_LOG))
