@@ -136,8 +136,12 @@ def _load_single_dataset(
     elif dataset_attr.load_from == "cloud_file":
         dataset = Dataset.from_list(read_cloud_json(data_path), split=dataset_attr.split)
     else:
-        # Use datasets_cache_dir from data_args if set, otherwise fall back to model_args.cache_dir
+        # Use datasets_cache_dir from data_args if set, otherwise fall back to model_args.cache_dir.
+        # Skip cache_dir for local directory paths to avoid datasets>=4.7.0 cache
+        # resolution bugs where arrow files get misplaced under cache_dir/basename().
         hf_cache_dir = data_args.datasets_cache_dir or model_args.cache_dir
+        if data_path and os.path.isdir(data_path):
+            hf_cache_dir = None
         _load_kwargs = dict(
             path=data_path,
             name=data_name,
