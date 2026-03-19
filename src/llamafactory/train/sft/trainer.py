@@ -216,47 +216,41 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
             # Capture last hidden state via hook (avoids output_hidden_states=True
             # which returns ALL layers and OOMs)
-            last_hidden = {}
+            captured = {}
 
-            def _capture_hook(module, input, output):
-                # Model body output can be a BaseModelOutputWithPast, tuple, or tensor.
-                # The last hidden state is always the first element.
-                if hasattr(output, "last_hidden_state"):
-                    last_hidden["states"] = output.last_hidden_state
-                elif isinstance(output, (tuple, list)):
-                    last_hidden["states"] = output[0]
-                else:
-                    last_hidden["states"] = output
+            def _intercept_lm_head(module, input, output):
+                # Post-forward hook: capture the input hidden states and the
+                # gathered weight (FSDP has full weight during forward), then
+                # replace the output with a tiny dummy to avoid keeping the
+                # 30+ GiB logits tensor in memory.
+                hidden_input = input[0] if isinstance(input, tuple) else input
+                captured["hidden"] = hidden_input
+                captured["lm_weight"] = module.weight.detach().clone()
+                # Return dummy logits (1 class) — the real loss uses linear_cross_entropy
+                return torch.zeros(
+                    hidden_input.shape[0], hidden_input.shape[1], 1,
+                    device=hidden_input.device, dtype=hidden_input.dtype,
+                )
 
-            # Find the model body (before lm_head) and lm_head weight.
-            # Under FSDP, use accelerator.unwrap_model to get the original module
-            # with unflattened parameters.
+            # Find lm_head
             if hasattr(self, "accelerator"):
                 unwrapped = self.accelerator.unwrap_model(model)
             else:
                 unwrapped = model.module if hasattr(model, "module") else model
             lm_head = getattr(unwrapped, "lm_head", None)
-            model_body = getattr(unwrapped, "model", None)
 
-            if lm_head is not None and model_body is not None:
-                hook = model_body.register_forward_hook(_capture_hook)
+            if lm_head is not None:
+                hook = lm_head.register_forward_hook(_intercept_lm_head)
                 try:
                     outputs = model(**inputs)
                 finally:
                     hook.remove()
 
-                hidden = last_hidden.get("states")
-                if hidden is not None:
-                    # Shift for next-token prediction
+                hidden = captured.get("hidden")
+                w = captured.get("lm_weight")
+                if hidden is not None and w is not None:
                     shift_hidden = hidden[:, :-1].contiguous()
                     shift_labels = labels[:, 1:].contiguous()
-
-                    # lm_head.weight may be a 1D FlatParameter under FSDP;
-                    # reshape to [vocab_size, hidden_dim] if needed.
-                    w = lm_head.weight
-                    if w.dim() == 1:
-                        hidden_dim = shift_hidden.size(-1)
-                        w = w.view(-1, hidden_dim)
 
                     loss = linear_cross_entropy(
                         shift_hidden,
