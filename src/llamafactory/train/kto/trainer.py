@@ -117,10 +117,10 @@ class CustomKTOTrainer(KTOTrainer):
             pass
 
     @override
-    def create_optimizer(self) -> "torch.optim.Optimizer":
+    def create_optimizer(self, model=None) -> "torch.optim.Optimizer":
         if self.optimizer is None:
-            self.optimizer = create_custom_optimizer(self.model, self.args, self.finetuning_args)
-        return super().create_optimizer()
+            self.optimizer = create_custom_optimizer(model or self.model, self.args, self.finetuning_args)
+        return super().create_optimizer(model)
 
     @override
     def create_scheduler(
