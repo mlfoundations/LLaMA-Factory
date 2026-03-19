@@ -228,8 +228,13 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                 else:
                     last_hidden["states"] = output
 
-            # Find the model body (before lm_head) and lm_head
-            unwrapped = model.module if hasattr(model, "module") else model
+            # Find the model body (before lm_head) and lm_head weight.
+            # Under FSDP, use accelerator.unwrap_model to get the original module
+            # with unflattened parameters.
+            if hasattr(self, "accelerator"):
+                unwrapped = self.accelerator.unwrap_model(model)
+            else:
+                unwrapped = model.module if hasattr(model, "module") else model
             lm_head = getattr(unwrapped, "lm_head", None)
             model_body = getattr(unwrapped, "model", None)
 
@@ -246,9 +251,15 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                     shift_hidden = hidden[:, :-1].contiguous()
                     shift_labels = labels[:, 1:].contiguous()
 
+                    # lm_head.weight may be a 1D FlatParameter under FSDP;
+                    # reshape to [vocab_size, hidden_dim] if needed.
+                    w = lm_head.weight
+                    if w.dim() == 1:
+                        w = w.view(unwrapped.config.vocab_size, -1)
+
                     loss = linear_cross_entropy(
                         shift_hidden,
-                        lm_head.weight,
+                        w,
                         shift_labels,
                         ignore_index=-100,
                         reduction="mean",
