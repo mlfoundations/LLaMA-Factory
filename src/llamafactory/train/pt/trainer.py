@@ -95,7 +95,10 @@ class CustomTrainer(Trainer):
     def create_optimizer(self, model=None) -> "torch.optim.Optimizer":
         if self.optimizer is None:
             self.optimizer = create_custom_optimizer(model or self.model, self.args, self.finetuning_args)
-        return super().create_optimizer(model)
+        import inspect
+        if "model" in inspect.signature(super().create_optimizer).parameters:
+            return super().create_optimizer(model)
+        return super().create_optimizer()
 
     @override
     def create_scheduler(
