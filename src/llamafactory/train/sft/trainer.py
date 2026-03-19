@@ -206,15 +206,44 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         r"""Compute loss with ALST support for sequence parallel training."""
         # When CCE is active, strip labels so the model returns raw logits
         # instead of computing cross_entropy internally (which OOMs for large vocabs).
+        # Then compute cross_entropy in chunks to avoid materializing all logits at once.
         if self.compute_loss_func is not None and "labels" in inputs:
+            import torch
+
             labels = inputs.pop("labels")
-            # Request hidden states so CCE can use linear_cross_entropy
-            # (hidden_states + lm_head weight) instead of materializing logits.
-            inputs["output_hidden_states"] = True
             outputs = model(**inputs)
-            # Attach model reference so cce_loss_func can find lm_head weight
-            outputs["model"] = model
-            loss = self.compute_loss_func(outputs, labels, num_items_in_batch=kwargs.get("num_items_in_batch"))
+            logits = outputs.get("logits")
+
+            if logits is not None:
+                # Shift for next-token prediction
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+
+                # Compute cross_entropy in chunks along sequence dim to avoid
+                # materializing [full_seq × vocab_size] in float32 at once.
+                chunk_size = 1024
+                B, S, V = shift_logits.shape
+                shift_logits_flat = shift_logits.reshape(-1, V)
+                shift_labels_flat = shift_labels.reshape(-1)
+
+                total_loss = torch.tensor(0.0, device=logits.device, dtype=torch.float32)
+                total_tokens = 0
+                for i in range(0, shift_logits_flat.shape[0], chunk_size):
+                    chunk_logits = shift_logits_flat[i : i + chunk_size].float()
+                    chunk_labels = shift_labels_flat[i : i + chunk_size]
+                    valid = (chunk_labels != -100).sum().item()
+                    if valid > 0:
+                        chunk_loss = torch.nn.functional.cross_entropy(
+                            chunk_logits, chunk_labels, ignore_index=-100, reduction="sum"
+                        )
+                        total_loss = total_loss + chunk_loss
+                        total_tokens += valid
+                    del chunk_logits
+
+                loss = total_loss / max(total_tokens, 1)
+            else:
+                loss = outputs.get("loss", torch.tensor(0.0))
+
             return (loss, outputs) if return_outputs else loss
 
         sequence_parallel_group = get_sequence_parallel_group(model, self.accelerator)
