@@ -208,7 +208,12 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
         # instead of computing cross_entropy internally (which OOMs for large vocabs).
         if self.compute_loss_func is not None and "labels" in inputs:
             labels = inputs.pop("labels")
+            # Request hidden states so CCE can use linear_cross_entropy
+            # (hidden_states + lm_head weight) instead of materializing logits.
+            inputs["output_hidden_states"] = True
             outputs = model(**inputs)
+            # Attach model reference so cce_loss_func can find lm_head weight
+            outputs["model"] = model
             loss = self.compute_loss_func(outputs, labels, num_items_in_batch=kwargs.get("num_items_in_batch"))
             return (loss, outputs) if return_outputs else loss
 
