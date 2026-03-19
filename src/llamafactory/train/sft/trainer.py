@@ -249,7 +249,7 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                     loss = linear_cross_entropy(
                         shift_hidden,
                         lm_head.weight,
-                        shift_labels.reshape(-1),
+                        shift_labels,
                         ignore_index=-100,
                         reduction="mean",
                     )
