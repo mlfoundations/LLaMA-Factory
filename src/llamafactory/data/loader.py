@@ -140,8 +140,11 @@ def _load_single_dataset(
         # Skip cache_dir for local directory paths to avoid datasets>=4.7.0 cache
         # resolution bugs where arrow files get misplaced under cache_dir/basename().
         hf_cache_dir = data_args.datasets_cache_dir or model_args.cache_dir
+        # For local directory paths, cache arrow files alongside the dataset itself
+        # to avoid datasets>=4.7.0 cache resolution bugs (misplaced under
+        # cache_dir/basename()) and permission errors with shared HF_HUB_CACHE dirs.
         if data_path and os.path.isdir(data_path):
-            hf_cache_dir = None
+            hf_cache_dir = data_path
         _load_kwargs = dict(
             path=data_path,
             name=data_name,
