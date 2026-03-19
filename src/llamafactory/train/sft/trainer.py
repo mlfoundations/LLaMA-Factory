@@ -204,65 +204,49 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     @override
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         r"""Compute loss with ALST support for sequence parallel training."""
-        # When CCE is active, use linear_cross_entropy to avoid materializing
-        # the full [seq_len × vocab_size] logits tensor (30+ GiB for Qwen3.5).
-        # This captures the last hidden state via a hook and computes the loss
-        # using hidden_state @ lm_head.weight directly.
+        # When CCE is active, strip labels so the model returns logits without
+        # computing the internal loss, then compute cross_entropy in chunks to
+        # avoid materializing the full [seq_len × vocab_size] gradient at once.
+        # Under DeepSpeed ZeRO-3, gradient partitioning across ranks may allow
+        # the chunked backward to succeed where FSDP failed.
         if self.compute_loss_func is not None and "labels" in inputs:
             import torch
-            from cut_cross_entropy import linear_cross_entropy
 
             labels = inputs.pop("labels")
-
-            # Capture last hidden state via hook (avoids output_hidden_states=True
-            # which returns ALL layers and OOMs)
-            captured = {}
-
-            def _intercept_lm_head(module, input, output):
-                # Post-forward hook: capture the input hidden states and the
-                # weight reference. Do NOT clone/detach — that breaks FSDP state.
-                hidden_input = input[0] if isinstance(input, tuple) else input
-                captured["hidden"] = hidden_input
-                captured["lm_weight"] = module.weight
-                # Return dummy logits (1 class) — the real loss uses linear_cross_entropy
-                return torch.zeros(
-                    hidden_input.shape[0], hidden_input.shape[1], 1,
-                    device=hidden_input.device, dtype=hidden_input.dtype,
-                    requires_grad=True,
-                )
-
-            # Find lm_head
-            if hasattr(self, "accelerator"):
-                unwrapped = self.accelerator.unwrap_model(model)
-            else:
-                unwrapped = model.module if hasattr(model, "module") else model
-            lm_head = getattr(unwrapped, "lm_head", None)
-
-            if lm_head is not None:
-                hook = lm_head.register_forward_hook(_intercept_lm_head)
-                try:
-                    outputs = model(**inputs)
-                finally:
-                    hook.remove()
-
-                hidden = captured.get("hidden")
-                w = captured.get("lm_weight")
-                if hidden is not None and w is not None:
-                    shift_hidden = hidden[:, :-1].contiguous()
-                    shift_labels = labels[:, 1:].contiguous()
-
-                    loss = linear_cross_entropy(
-                        shift_hidden,
-                        w,
-                        shift_labels,
-                        ignore_index=-100,
-                        reduction="mean",
-                    )
-                    return (loss, outputs) if return_outputs else loss
-
-            # Fallback: standard path (shouldn't reach here for CCE-enabled models)
             outputs = model(**inputs)
-            loss = outputs.get("loss", torch.tensor(0.0, device=next(model.parameters()).device))
+            logits = outputs.get("logits")
+
+            if logits is not None:
+                # Shift for next-token prediction
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+
+                # Chunked cross-entropy: process sequence in chunks to limit
+                # peak memory during both forward and backward.
+                chunk_size = 512
+                B, S, V = shift_logits.shape
+                shift_logits_2d = shift_logits.reshape(-1, V)
+                shift_labels_1d = shift_labels.reshape(-1)
+
+                # Use torch.chunk to keep autograd graph connected
+                logit_chunks = shift_logits_2d.chunk(max(1, shift_logits_2d.shape[0] // chunk_size))
+                label_chunks = shift_labels_1d.chunk(max(1, shift_labels_1d.shape[0] // chunk_size))
+
+                total_loss = torch.tensor(0.0, device=logits.device, dtype=torch.float32)
+                total_tokens = 0
+                for lc, lbl in zip(logit_chunks, label_chunks):
+                    valid = (lbl != -100).sum().item()
+                    if valid > 0:
+                        chunk_loss = torch.nn.functional.cross_entropy(
+                            lc.float(), lbl, ignore_index=-100, reduction="sum"
+                        )
+                        total_loss = total_loss + chunk_loss
+                        total_tokens += valid
+
+                loss = total_loss / max(total_tokens, 1)
+            else:
+                loss = outputs.get("loss", torch.tensor(0.0))
+
             return (loss, outputs) if return_outputs else loss
 
         sequence_parallel_group = get_sequence_parallel_group(model, self.accelerator)
