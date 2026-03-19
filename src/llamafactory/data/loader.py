@@ -140,11 +140,12 @@ def _load_single_dataset(
         # Skip cache_dir for local directory paths to avoid datasets>=4.7.0 cache
         # resolution bugs where arrow files get misplaced under cache_dir/basename().
         hf_cache_dir = data_args.datasets_cache_dir or model_args.cache_dir
-        # For local directory paths, cache arrow files alongside the dataset itself
-        # to avoid datasets>=4.7.0 cache resolution bugs (misplaced under
-        # cache_dir/basename()) and permission errors with shared HF_HUB_CACHE dirs.
+        # For local directory paths, use a user-writable temp cache to avoid:
+        # 1. datasets>=4.7.0 cache resolution bugs (misplaces under cache_dir/basename())
+        # 2. Permission errors with shared HF_HUB_CACHE directories
         if data_path and os.path.isdir(data_path):
-            hf_cache_dir = data_path
+            import tempfile
+            hf_cache_dir = os.path.join(tempfile.gettempdir(), "llamafactory_datasets_cache")
         _load_kwargs = dict(
             path=data_path,
             name=data_name,
