@@ -204,6 +204,14 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
     @override
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         r"""Compute loss with ALST support for sequence parallel training."""
+        # When CCE is active, strip labels so the model returns raw logits
+        # instead of computing cross_entropy internally (which OOMs for large vocabs).
+        if self.compute_loss_func is not None and "labels" in inputs:
+            labels = inputs.pop("labels")
+            outputs = model(**inputs)
+            loss = self.compute_loss_func(outputs, labels, num_items_in_batch=kwargs.get("num_items_in_batch"))
+            return (loss, outputs) if return_outputs else loss
+
         sequence_parallel_group = get_sequence_parallel_group(model, self.accelerator)
 
         # Check if we should use ALST loss computation
