@@ -255,7 +255,8 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
                     # reshape to [vocab_size, hidden_dim] if needed.
                     w = lm_head.weight
                     if w.dim() == 1:
-                        w = w.view(unwrapped.config.vocab_size, -1)
+                        hidden_dim = shift_hidden.size(-1)
+                        w = w.view(-1, hidden_dim)
 
                     loss = linear_cross_entropy(
                         shift_hidden,
