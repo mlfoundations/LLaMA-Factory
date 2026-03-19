@@ -219,8 +219,11 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
             last_hidden = {}
 
             def _capture_hook(module, input, output):
-                # For most causal LMs, the model body outputs (hidden_states, ...)
-                if isinstance(output, tuple):
+                # Model body output can be a BaseModelOutputWithPast, tuple, or tensor.
+                # The last hidden state is always the first element.
+                if hasattr(output, "last_hidden_state"):
+                    last_hidden["states"] = output.last_hidden_state
+                elif isinstance(output, (tuple, list)):
                     last_hidden["states"] = output[0]
                 else:
                     last_hidden["states"] = output
