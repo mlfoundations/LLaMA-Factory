@@ -227,14 +227,28 @@ class CustomSeq2SeqTrainer(Seq2SeqTrainer):
 
                 # Chunked cross-entropy: process sequence in chunks to limit
                 # peak memory during both forward and backward.
-                chunk_size = 512
+                # Use 256 tokens/chunk (reduced from 512) to lower peak memory
+                # per-chunk during backward, which may prevent silent hangs on
+                # long sequences with DeepSpeed ZeRO-3.
+                chunk_size = 256
                 B, S, V = shift_logits.shape
                 shift_logits_2d = shift_logits.reshape(-1, V)
                 shift_labels_1d = shift_labels.reshape(-1)
 
+                # Log sequence stats for debugging silent NCCL hangs
+                rank = int(os.environ.get("RANK", os.environ.get("LOCAL_RANK", 0)))
+                n_chunks = max(1, shift_logits_2d.shape[0] // chunk_size)
+                if rank == 0 and self.state.global_step % 50 == 0:
+                    valid_tokens = (shift_labels_1d != -100).sum().item()
+                    logger.info(
+                        f"[CCE] step={self.state.global_step} B={B} S={S} V={V} "
+                        f"chunks={n_chunks} valid_tokens={valid_tokens} "
+                        f"gpu_mem={torch.cuda.memory_allocated() / 1e9:.1f}GB"
+                    )
+
                 # Use torch.chunk to keep autograd graph connected
-                logit_chunks = shift_logits_2d.chunk(max(1, shift_logits_2d.shape[0] // chunk_size))
-                label_chunks = shift_labels_1d.chunk(max(1, shift_labels_1d.shape[0] // chunk_size))
+                logit_chunks = shift_logits_2d.chunk(n_chunks)
+                label_chunks = shift_labels_1d.chunk(n_chunks)
 
                 total_loss = torch.tensor(0.0, device=logits.device, dtype=torch.float32)
                 total_tokens = 0
