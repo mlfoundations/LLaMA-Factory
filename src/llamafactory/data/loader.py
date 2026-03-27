@@ -143,7 +143,9 @@ def _load_single_dataset(
         # For local directory paths, use a user-writable temp cache to avoid:
         # 1. datasets>=4.7.0 cache resolution bugs (misplaces under cache_dir/basename())
         # 2. Permission errors with shared HF_HUB_CACHE directories
-        if data_path and os.path.isdir(data_path):
+        # But if datasets_cache_dir is explicitly set, respect it (needed for clusters
+        # where /tmp is too small for large datasets like 100K).
+        if data_path and os.path.isdir(data_path) and not data_args.datasets_cache_dir:
             import tempfile
             hf_cache_dir = os.path.join(tempfile.gettempdir(), "llamafactory_datasets_cache")
         _load_kwargs = dict(
