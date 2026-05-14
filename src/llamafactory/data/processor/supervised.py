@@ -103,7 +103,7 @@ class SupervisedDatasetProcessor(DatasetProcessor):
 
         for i in range(len(examples["_prompt"])):
             if len(examples["_prompt"][i]) % 2 != 1 or len(examples["_response"][i]) != 1:
-                logger.warning_rank0(
+                logger.debug(
                     "Dropped invalid example: {}".format(examples["_prompt"][i] + examples["_response"][i])
                 )
                 continue
@@ -203,7 +203,7 @@ class PackedSupervisedDatasetProcessor(SupervisedDatasetProcessor):
         length2indexes = defaultdict(list)
         for i in range(len(examples["_prompt"])):
             if len(examples["_prompt"][i]) % 2 != 1 or len(examples["_response"][i]) != 1:
-                logger.warning_rank0(
+                logger.debug(
                     "Dropped invalid example: {}".format(examples["_prompt"][i] + examples["_response"][i])
                 )
                 continue

@@ -61,7 +61,7 @@ class UnsupervisedDatasetProcessor(DatasetProcessor):
         model_inputs = defaultdict(list)
         for i in range(len(examples["_prompt"])):
             if len(examples["_prompt"][i]) % 2 != 1:
-                logger.warning_rank0(
+                logger.debug(
                     "Dropped invalid example: {}".format(examples["_prompt"][i] + examples["_response"][i])
                 )
                 continue
