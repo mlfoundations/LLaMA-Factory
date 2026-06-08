@@ -1291,6 +1291,45 @@ register_template(
 )
 
 
+# Delphi: Llama-3 tokenizer + canonical thinking/tool token protocol (marin #6279).
+# Reasoning region uses repurposed reserved-slot tokens <|start_think|>/<|end_think|>; tool calls
+# and results are wrapped in <|tool_call|>..<|tool_call_end|> / <|tool_result|>..<|tool_result_end|>.
+# These 6 strings MUST be registered as single special tokens on the tokenizer first (reserved-slot
+# rename + mean-init) — see OpenThoughts-Agent tokenizer-prep script. replace_jinja_template=True so
+# LF generates + persists this exact template into tokenizer.chat_template on save (for RL/vLLM).
+register_template(
+    name="delphi",
+    format_user=StringFormatter(
+        slots=[
+            (
+                "<|start_header_id|>user<|end_header_id|>\n\n{{content}}<|eot_id|>"
+                "<|start_header_id|>assistant<|end_header_id|>\n\n"
+            )
+        ]
+    ),
+    format_assistant=StringFormatter(slots=["{{content}}<|eot_id|>"]),
+    format_system=StringFormatter(slots=["<|start_header_id|>system<|end_header_id|>\n\n{{content}}<|eot_id|>"]),
+    format_function=FunctionFormatter(
+        slots=["<|tool_call|>\n{{content}}\n<|tool_call_end|><|eot_id|>"], tool_format="default"
+    ),
+    format_observation=StringFormatter(
+        slots=[
+            (
+                "<|start_header_id|>tool<|end_header_id|>\n\n<|tool_result|>\n{{content}}\n<|tool_result_end|><|eot_id|>"
+                "<|start_header_id|>assistant<|end_header_id|>\n\n"
+            )
+        ]
+    ),
+    format_tools=ToolFormatter(tool_format="default"),
+    format_prefix=EmptyFormatter(slots=[{"bos_token"}]),
+    stop_words=["<|eot_id|>"],
+    replace_eos=True,
+    thought_words=("<|start_think|>", "<|end_think|>"),
+    replace_jinja_template=True,
+    template_class=ReasoningTemplate,
+)
+
+
 register_template(
     name="llama4",
     format_user=StringFormatter(
