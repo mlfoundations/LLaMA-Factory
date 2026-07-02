@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
 import re
 from copy import deepcopy
 from dataclasses import dataclass
@@ -199,8 +200,17 @@ class Template:
             logger.info_rank0(f"Add pad token: {tokenizer.pad_token}")
 
         if stop_words:
+            # transformers >=5 removed the `replace_additional_special_tokens` kwarg from
+            # add_special_tokens. Pass it only when the running transformers still accepts it
+            # (behavior-preserving on <5, where we keep the explicit =False); on >=5 omit it so
+            # the call doesn't TypeError at tokenizer setup before any training step.
+            add_kwargs = {}
+            if "replace_additional_special_tokens" in inspect.signature(
+                tokenizer.add_special_tokens
+            ).parameters:
+                add_kwargs["replace_additional_special_tokens"] = False
             num_added_tokens = tokenizer.add_special_tokens(
-                dict(additional_special_tokens=stop_words), replace_additional_special_tokens=False
+                dict(additional_special_tokens=stop_words), **add_kwargs
             )
             logger.info_rank0("Add {} to stop words.".format(",".join(stop_words)))
             if num_added_tokens > 0:
